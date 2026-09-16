@@ -7,8 +7,10 @@
     <style>
         body { font-family: system-ui, sans-serif; text-align: center; background: #f4f4f9; padding: 20px; margin: 0; }
         .container { max-width: 500px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        video { width: 100%; border-radius: 8px; background: #222; min-height: 200px; }
-        button { background: #0070f3; color: white; border: none; padding: 14px 20px; font-size: 16px; border-radius: 6px; cursor: pointer; width: 100%; margin-top: 10px; font-weight: bold; }
+        video, img { width: 100%; border-radius: 8px; background: #222; min-height: 200px; max-height: 350px; object-fit: contain; }
+        button, .file-label { background: #0070f3; color: white; border: none; padding: 14px 20px; font-size: 16px; border-radius: 6px; cursor: pointer; width: 100%; margin-top: 10px; font-weight: bold; display: block; box-sizing: border-box; text-align: center; }
+        .file-label { background: #6c757d; }
+        input[type="file"] { display: none; }
         #result { margin-top: 15px; font-weight: bold; padding: 12px; border-radius: 6px; background: #eee; }
         .kosher { background: #d4edda !important; color: #155724; }
         .unknown { background: #fff3cd !important; color: #856404; }
@@ -17,15 +19,23 @@
 <body>
     <div class="container">
         <h2>סורק מוצרים כשרים 🇺🇦</h2>
+        
         <video id="video" autoplay playsinline></video>
-        <button id="camBtn" onclick="startCamera()">הפעל מצלמה</button>
-        <button id="scanBtn" onclick="scanProduct()" style="display:none; background:#28a745;">סרוק מוצר</button>
-        <div id="result">לחץ על "הפעל מצלמה" כדי להתחיל</div>
+        <img id="preview" style="display:none;" />
+
+        <button id="camBtn" onclick="startCamera()">הפעל מצלמה בלייב</button>
+        <button id="scanBtn" onclick="scanFromCamera()" style="display:none; background:#28a745;">סרוק ממצלמה</button>
+        
+        <label for="fileInput" class="file-label">📂 העלה תמונה מהגלריה</label>
+        <input type="file" id="fileInput" accept="image/*" onchange="handleFileUpload(event)">
+
+        <div id="result">בחר אפשרות לסריקה</div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script>
         const video = document.getElementById('video');
+        const preview = document.getElementById('preview');
         const resultDiv = document.getElementById('result');
         const camBtn = document.getElementById('camBtn');
         const scanBtn = document.getElementById('scanBtn');
@@ -34,6 +44,77 @@
             { name: "Chumak", ukr: "Чумак", status: "כשר", details: "קטשופ ורכזי עגבניות (ללא תוספות חלביות)" },
             { name: "Sadochek", ukr: "Садочок", status: "כשר", details: "מיצים טבעיים (תפוח, תפוז)" },
             { name: "Morshynska", ukr: "Моршинська", status: "כשר", details: "מים מינרליים" },
+            { name: "Roshen", ukr: "Рошен", status: "טעון בדיקה", details: "יש לבדוק רכיבים ספציפיים / חלב נכרי" },
+            { name: "Red Bull", ukr: "Реד בול", status: "כשר", details: "משקה אנרגיה סטנדרטי" }
+        ];
+
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                video.srcObject = stream;
+                video.style.display = 'block';
+                preview.style.display = 'none';
+                camBtn.style.display = 'none';
+                scanBtn.style.display = 'block';
+                resultDiv.innerText = "המצלמה פעילה. כוון למוצר ולחץ סרוק.";
+            } catch (err) {
+                resultDiv.innerText = "שגיאה בגישה למצלמה: " + err.message;
+            }
+        }
+
+        async function scanFromCamera() {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            processImageSource(canvas);
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                preview.src = e.target.result;
+                preview.style.display = 'block';
+                video.style.display = 'none';
+                scanBtn.style.display = 'none';
+                camBtn.style.display = 'block';
+                
+                processImageSource(preview.src);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function processImageSource(source) {
+            resultDiv.className = "";
+            resultDiv.innerText = "מעבד תמונה (OCR)...";
+
+            try {
+                const worker = await Tesseract.createWorker(['ukr', 'eng']);
+                const ret = await worker.recognize(source);
+                await worker.terminate();
+                
+                const text = ret.data.text.toLowerCase();
+                let found = kosherDatabase.find(item => 
+                    text.includes(item.name.toLowerCase()) || text.includes(item.ukr.toLowerCase())
+                );
+
+                if (found) {
+                    resultDiv.className = "kosher";
+                    resultDiv.innerHTML = `<strong>${found.name} (${found.ukr})</strong><br>סטטוס: ${found.status}<br>${found.details}`;
+                } else {
+                    resultDiv.className = "unknown";
+                    resultDiv.innerText = "המוצר לא זוהה במאגר.";
+                }
+            } catch (e) {
+                resultDiv.innerText = "שגיאה בסריקה, נסה שוב";
+            }
+        }
+    </script>
+</body>
+</html>
             { name: "Roshen", ukr: "Рошен", status: "טעון בדיקה", details: "יש לבדוק רכיבים ספציפיים / חלב נכרי" }
         ];
 
